@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube字幕转长文"
+  short_description: "通过 YouTube transcript 生成 Obsidian Markdown 长文"
+  default_prompt: "Use $youtube-transcript-to-md 把这个 YouTube 视频链接整理成 Obsidian Markdown 长文。"

@@ -205,7 +205,6 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 - 本工具不会在字幕获取失败时编造内容。
 
 参考项目：[jdepoix/youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api)
-感谢项目支持
 
 ## License
 

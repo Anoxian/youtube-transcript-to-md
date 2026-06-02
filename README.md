@@ -204,7 +204,20 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 - YouTube 可能限制请求频率或封锁部分 IP。
 - 本工具不会在字幕获取失败时编造内容。
 
-参考项目：[jdepoix/youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api)
+## Credits
+
+This skill depends on [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api),
+an MIT-licensed Python library by Jonas Depoix, to fetch YouTube transcripts.
+
+This repository wraps that library into a Codex skill workflow and adds
+Markdown generation, Obsidian-friendly output handling, local output path
+configuration, and optional progressive note enhancement guidance.
+
+中文说明：
+
+- 本 skill 依赖 [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) 获取 YouTube 字幕。
+- 原库由 Jonas Depoix 创建，采用 MIT License。
+- 本项目没有重新实现字幕抓取能力，而是将该库包装为 Codex skill，并补充 Markdown 生成、Obsidian 输出路径管理和渐进式笔记优化流程。
 
 ## License
 

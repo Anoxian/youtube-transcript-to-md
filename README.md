@@ -1,6 +1,6 @@
 # YouTube Transcript to Markdown
 
-把 YouTube 视频字幕整理成适合 Obsidian 阅读的 Markdown 长文。这个仓库既可以作为独立 Python 脚本使用，也可以作为 Codex skill 使用。
+把 YouTube 视频字幕整理成适合 Obsidian 阅读的 Markdown 长文。这个仓库既可以作为独立 Python 脚本使用，也可以作为 Codex / Claude 等支持 `SKILL.md` 的 agent skill 使用。
 
 ## 它解决什么问题
 
@@ -78,10 +78,10 @@ Use $youtube-transcript-to-md 把这个 YouTube 视频链接整理成 Obsidian M
     └── youtube_transcript_to_md.py
 ```
 
-- `SKILL.md`：Codex skill 的主说明，定义触发方式、默认流程和失败处理。
+- `SKILL.md`：agent skill 的主说明，定义触发方式、默认流程和失败处理。
 - `scripts/youtube_transcript_to_md.py`：主脚本，负责获取字幕并生成 Markdown。
 - `references/enhancement-guide.md`：第二层排版优化指南，只在用户明确要求优化时读取。
-- `agents/openai.yaml`：面向 OpenAI/Codex 运行环境的界面提示配置。
+- `agents/openai.yaml`：面向 OpenAI/Codex 运行环境的界面提示配置；不影响 Claude 读取 `SKILL.md`、`scripts/` 和 `references/`。
 
 ## 安装依赖
 
@@ -160,18 +160,47 @@ python3 scripts/youtube_transcript_to_md.py \
   --save-srt
 ```
 
-## 作为 Codex Skill 使用
+## 作为 Codex / Claude Skill 使用
 
-把仓库放到本地 skills 目录：
+这个仓库是一个标准 skill 文件夹，核心入口是 `SKILL.md`。如果你想同时给多个 agent 使用，可以把仓库统一放在一个共享目录里：
 
 ```text
 ~/.agents/skills/youtube-transcript-to-md
 ```
 
-然后可以这样调用：
+然后按使用的工具，把它复制或软链接到对应目录。
+
+Codex 常用目录：
+
+```text
+~/.codex/skills/youtube-transcript-to-md
+```
+
+Claude 常用目录：
+
+```text
+~/.claude/skills/youtube-transcript-to-md
+```
+
+如果已经把仓库存到 `~/.agents/skills/youtube-transcript-to-md`，可以用软链接让 Codex 和 Claude 共用同一份文件：
+
+```bash
+ln -s ~/.agents/skills/youtube-transcript-to-md ~/.codex/skills/youtube-transcript-to-md
+ln -s ~/.agents/skills/youtube-transcript-to-md ~/.claude/skills/youtube-transcript-to-md
+```
+
+这样以后只需要维护 `~/.agents/skills/youtube-transcript-to-md` 这一份源码，两个工具都会读到同一个 skill。
+
+Codex 调用示例：
 
 ```text
 Use $youtube-transcript-to-md 把这个 YouTube 视频链接整理成 Obsidian Markdown 长文。
+```
+
+Claude 调用示例：
+
+```text
+Use the youtube-transcript-to-md skill to turn this YouTube video into an Obsidian-friendly Markdown note.
 ```
 
 如果已经生成了一篇 Markdown，想进入第二层优化，可以继续说：
@@ -180,7 +209,7 @@ Use $youtube-transcript-to-md 把这个 YouTube 视频链接整理成 Obsidian M
 把刚才生成的笔记优化排版，突出重点，关键词按 Python 色系加颜色。
 ```
 
-这时 Codex 会读取 `references/enhancement-guide.md`，按里面的规则做结构化整理。
+这时 agent 会按需读取 `references/enhancement-guide.md`，按里面的规则做结构化整理。
 
 ## 支持的链接格式
 
@@ -209,7 +238,7 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 This skill depends on [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api),
 an MIT-licensed Python library by Jonas Depoix, to fetch YouTube transcripts.
 
-This repository wraps that library into a Codex skill workflow and adds
+This repository wraps that library into an agent skill workflow and adds
 Markdown generation, Obsidian-friendly output handling, local output path
 configuration, and optional progressive note enhancement guidance.
 
@@ -217,7 +246,7 @@ configuration, and optional progressive note enhancement guidance.
 
 - 本 skill 依赖 [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) 获取 YouTube 字幕。
 - 原库由 Jonas Depoix 创建，采用 MIT License。
-- 本项目没有重新实现字幕抓取能力，而是将该库包装为 Codex skill，并补充 Markdown 生成、Obsidian 输出路径管理和渐进式笔记优化流程。
+- 本项目没有重新实现字幕抓取能力，而是将该库包装为 agent skill，并补充 Markdown 生成、Obsidian 输出路径管理和渐进式笔记优化流程。
 
 ## License
 

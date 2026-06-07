@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.parse
 import warnings
 from dataclasses import dataclass
@@ -68,8 +72,9 @@ class TranscriptResult:
     video_id: str
     language: str
     language_code: str
-    is_generated: bool
+    is_generated: bool | None
     cues: list[Cue]
+    source: str = "youtube-transcript-api"
 
 
 def extract_video_id(value: str) -> str:
@@ -205,6 +210,198 @@ def fetch_transcript(
     )
 
 
+def fetch_transcript_with_fallback(
+    video_id: str,
+    languages: list[str],
+    translate_to: str | None = None,
+    preserve_formatting: bool = False,
+    yt_dlp_only: bool = False,
+    use_yt_dlp_fallback: bool = True,
+) -> TranscriptResult:
+    primary_error: TranscriptError | None = None
+
+    if not yt_dlp_only:
+        try:
+            return fetch_transcript(
+                video_id=video_id,
+                languages=languages,
+                translate_to=translate_to,
+                preserve_formatting=preserve_formatting,
+            )
+        except TranscriptError as exc:
+            primary_error = exc
+            if not use_yt_dlp_fallback:
+                raise
+
+    fallback_languages = [translate_to] if translate_to else languages
+    try:
+        return fetch_transcript_with_yt_dlp(video_id=video_id, languages=fallback_languages)
+    except TranscriptError as exc:
+        if primary_error:
+            raise TranscriptError(
+                f"youtube-transcript-api 获取失败：{primary_error}；yt-dlp 兜底也失败：{exc}"
+            ) from exc
+        raise
+
+
+def fetch_transcript_with_yt_dlp(video_id: str, languages: list[str]) -> TranscriptResult:
+    if not shutil.which("yt-dlp"):
+        raise TranscriptError(
+            "未找到 yt-dlp 命令。请先安装：brew install yt-dlp"
+        )
+
+    language_arg = ",".join(languages)
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    with tempfile.TemporaryDirectory(prefix="youtube-md-ytdlp-") as tmpdir:
+        command = [
+            "yt-dlp",
+            "--skip-download",
+            "--no-playlist",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs",
+            language_arg,
+            "--sub-format",
+            "vtt",
+            "-P",
+            tmpdir,
+            "-o",
+            "%(id)s.%(ext)s",
+            url,
+        ]
+        completed = subprocess.run(
+            command,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).strip()
+            raise TranscriptError(detail or "yt-dlp 没有成功下载字幕。")
+
+        subtitle_files = sorted(Path(tmpdir).glob("*.vtt"))
+        if not subtitle_files:
+            raise TranscriptError("yt-dlp 没有写出 VTT 字幕文件。")
+
+        subtitle_path, language_code = choose_subtitle_file(subtitle_files, video_id, languages)
+        cues = parse_vtt_file(subtitle_path)
+        if not cues:
+            raise TranscriptError("yt-dlp 下载的字幕为空，无法生成 Markdown。")
+
+    return TranscriptResult(
+        video_id=video_id,
+        language=language_code,
+        language_code=language_code,
+        is_generated=None,
+        cues=cues,
+        source="yt-dlp",
+    )
+
+
+def choose_subtitle_file(
+    subtitle_files: list[Path],
+    video_id: str,
+    languages: list[str],
+) -> tuple[Path, str]:
+    ranked: list[tuple[int, int, Path, str]] = []
+    for index, path in enumerate(subtitle_files):
+        language_code = infer_language_code(path, video_id)
+        score = len(languages) + 1
+        for language_index, requested in enumerate(languages):
+            if language_code == requested or language_code.startswith(f"{requested}-"):
+                score = language_index
+                break
+        ranked.append((score, index, path, language_code))
+
+    _, _, path, language_code = sorted(ranked)[0]
+    return path, language_code
+
+
+def infer_language_code(path: Path, video_id: str) -> str:
+    stem = path.stem
+    prefix = f"{video_id}."
+    if stem.startswith(prefix):
+        return stem[len(prefix) :] or "unknown"
+    if "." in stem:
+        return stem.rsplit(".", 1)[-1] or "unknown"
+    return "unknown"
+
+
+def parse_vtt_timestamp(value: str) -> float:
+    value = value.replace(",", ".").strip()
+    parts = value.split(":")
+    if len(parts) == 3:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+    elif len(parts) == 2:
+        hours = 0
+        minutes = int(parts[0])
+        seconds = float(parts[1])
+    else:
+        raise ValueError(f"Invalid VTT timestamp: {value}")
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def clean_vtt_text(text: str) -> str:
+    text = re.sub(r"<\d{2}:\d{2}:\d{2}\.\d{3}>", "", text)
+    text = re.sub(r"<\d{2}:\d{2}\.\d{3}>", "", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    return clean_inline_text(text)
+
+
+def parse_vtt_file(path: Path) -> list[Cue]:
+    lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    cues: list[Cue] = []
+    index = 0
+
+    while index < len(lines):
+        line = lines[index].strip()
+        if "-->" not in line:
+            index += 1
+            continue
+
+        start_token, end_part = line.split("-->", 1)
+        end_token = end_part.strip().split()[0]
+        try:
+            start = parse_vtt_timestamp(start_token)
+            end = parse_vtt_timestamp(end_token)
+        except ValueError:
+            index += 1
+            continue
+
+        index += 1
+        text_lines: list[str] = []
+        while index < len(lines) and lines[index].strip():
+            text_lines.append(lines[index].strip())
+            index += 1
+
+        text = clean_vtt_text(" ".join(text_lines))
+        if text:
+            cues.append(Cue(start=start, duration=max(0.0, end - start), text=text))
+
+    return dedupe_cues(cues)
+
+
+def dedupe_cues(cues: list[Cue]) -> list[Cue]:
+    deduped: list[Cue] = []
+    for cue in cues:
+        if deduped and cue.text == deduped[-1].text:
+            continue
+        if deduped and cue.start < deduped[-1].end and cue.text.startswith(deduped[-1].text):
+            previous = deduped[-1]
+            deduped[-1] = Cue(
+                start=previous.start,
+                duration=max(previous.duration, cue.end - previous.start),
+                text=cue.text,
+            )
+            continue
+        deduped.append(cue)
+    return deduped
+
+
 def clean_inline_text(text: str) -> str:
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -308,12 +505,16 @@ def transcript_to_markdown(
 
     parts = [f"# {normalize_title(title)}"]
     if include_meta:
-        generated = "自动字幕" if result.is_generated else "人工字幕"
+        if result.is_generated is None:
+            generated = "未知"
+        else:
+            generated = "自动字幕" if result.is_generated else "人工字幕"
         parts.extend(
             [
                 f"- Video ID: `{result.video_id}`",
                 f"- 字幕语言: {result.language} (`{result.language_code}`)",
                 f"- 字幕类型: {generated}",
+                f"- 字幕来源: {result.source}",
             ]
         )
     parts.extend(paragraphs)
@@ -372,11 +573,13 @@ def run(args: argparse.Namespace) -> int:
     video_id = extract_video_id(args.url)
     languages = normalize_languages(args.languages)
     title = normalize_title(args.title or fetch_title(video_id))
-    result = fetch_transcript(
+    result = fetch_transcript_with_fallback(
         video_id=video_id,
         languages=languages,
         translate_to=args.translate_to,
         preserve_formatting=args.preserve_formatting,
+        yt_dlp_only=args.yt_dlp_only,
+        use_yt_dlp_fallback=not args.no_yt_dlp_fallback,
     )
 
     output_dir = Path(args.output_dir).expanduser()
@@ -400,7 +603,11 @@ def run(args: argparse.Namespace) -> int:
     print(f"视频：{title}")
     print(f"Video ID：{video_id}")
     print(f"字幕：{result.language} ({result.language_code})")
-    print(f"类型：{'自动字幕' if result.is_generated else '人工字幕'}")
+    if result.is_generated is None:
+        print("类型：未知")
+    else:
+        print(f"类型：{'自动字幕' if result.is_generated else '人工字幕'}")
+    print(f"来源：{result.source}")
     if json_path:
         print(f"JSON：{json_path}")
     if srt_path:
@@ -443,6 +650,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--preserve-formatting",
         action="store_true",
         help="Ask youtube-transcript-api to preserve basic subtitle formatting.",
+    )
+    parser.add_argument(
+        "--no-yt-dlp-fallback",
+        action="store_true",
+        help="Disable yt-dlp fallback when youtube-transcript-api fails.",
+    )
+    parser.add_argument(
+        "--yt-dlp-only",
+        action="store_true",
+        help="Fetch subtitles with yt-dlp directly instead of youtube-transcript-api.",
     )
     parser.add_argument("--save-json", action="store_true", help="Save transcript JSON for debugging.")
     parser.add_argument("--save-srt", action="store_true", help="Save converted SRT for debugging.")

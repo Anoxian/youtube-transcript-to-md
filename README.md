@@ -10,6 +10,7 @@
 - 优先中文，其次英文。
 - 把字幕整理成一篇可读的 Markdown 长文。
 - 默认只生成 Markdown，不保存调试用 JSON/SRT。
+- 主接口失败时自动用 `yt-dlp` 兜底获取 VTT 字幕。
 - 按需保留时间信息，生成时间目录草稿。
 - 按需进入第二层排版优化，把长文整理成更清晰的 Obsidian 笔记。
 
@@ -85,9 +86,19 @@ Use $youtube-transcript-to-md 把这个 YouTube 视频链接整理成 Obsidian M
 
 ## 安装依赖
 
+基础依赖：
+
 ```bash
 python3 -m pip install --user youtube-transcript-api requests
 ```
+
+可选兜底依赖：
+
+```bash
+brew install yt-dlp
+```
+
+如果不使用 Homebrew，也可以用你自己的 Python 环境安装 `yt-dlp`。在 macOS 的 Homebrew Python 里，`pip --user` 可能会被 PEP 668 保护机制拦截；这种情况下更推荐 `brew install yt-dlp`。
 
 ## 脚本用法
 
@@ -97,6 +108,8 @@ python3 -m pip install --user youtube-transcript-api requests
 python3 scripts/youtube_transcript_to_md.py \
   --url "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
+
+默认会先使用 `youtube-transcript-api`。如果主接口失败，并且本机已经安装 `yt-dlp`，脚本会自动尝试用 `yt-dlp` 下载 VTT 字幕作为兜底，然后继续生成同样格式的 Markdown。
 
 指定输出目录：
 
@@ -149,6 +162,28 @@ python3 scripts/youtube_transcript_to_md.py \
   --url "https://www.youtube.com/watch?v=VIDEO_ID" \
   --languages en \
   --translate-to zh-Hans
+```
+
+强制使用 `yt-dlp`：
+
+```bash
+python3 scripts/youtube_transcript_to_md.py \
+  --url "https://www.youtube.com/watch?v=VIDEO_ID" \
+  --yt-dlp-only
+```
+
+禁用 `yt-dlp` 兜底，只测试 `youtube-transcript-api`：
+
+```bash
+python3 scripts/youtube_transcript_to_md.py \
+  --url "https://www.youtube.com/watch?v=VIDEO_ID" \
+  --no-yt-dlp-fallback
+```
+
+只测试字幕轨道，不下载字幕文件：
+
+```bash
+yt-dlp --skip-download --list-subs "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 调试时保存原始字幕：
@@ -228,8 +263,10 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 ## 失败和限制
 
 - 依赖 `youtube-transcript-api` 的非官方 transcript 机制，可能随 YouTube 改动而失效。
-- 不需要 API key，也不默认使用 Cookie。
+- `yt-dlp` 兜底同样依赖 YouTube 当前页面和播放器机制，可能需要定期更新。
+- 不需要 API key，也不默认使用 Cookie；遇到登录、年龄限制或地区限制视频时，可能仍然失败。
 - 年龄限制、地区限制、关闭字幕或没有字幕的视频可能无法提取。
+- 有些视频没有人工字幕，但有自动字幕；`yt-dlp --list-subs` 会把这两类分开显示。
 - YouTube 可能限制请求频率或封锁部分 IP。
 - 本工具不会在字幕获取失败时编造内容。
 
@@ -238,6 +275,9 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 This skill depends on [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api),
 an MIT-licensed Python library by Jonas Depoix, to fetch YouTube transcripts.
 
+It can also use [yt-dlp](https://github.com/yt-dlp/yt-dlp) as a fallback
+subtitle extractor when the primary transcript API cannot retrieve captions.
+
 This repository wraps that library into an agent skill workflow and adds
 Markdown generation, Obsidian-friendly output handling, local output path
 configuration, and optional progressive note enhancement guidance.
@@ -245,8 +285,9 @@ configuration, and optional progressive note enhancement guidance.
 中文说明：
 
 - 本 skill 依赖 [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) 获取 YouTube 字幕。
+- 当主接口失败时，本 skill 可调用 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 作为字幕获取兜底。
 - 原库由 Jonas Depoix 创建，采用 MIT License。
-- 本项目没有重新实现字幕抓取能力，而是将该库包装为 agent skill，并补充 Markdown 生成、Obsidian 输出路径管理和渐进式笔记优化流程。
+- 本项目没有重新实现字幕抓取能力，而是将这些工具包装为 agent skill，并补充 Markdown 生成、Obsidian 输出路径管理和渐进式笔记优化流程。
 
 ## License
 

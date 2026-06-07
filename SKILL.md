@@ -17,10 +17,20 @@ description: YouTube 链接转 Obsidian Markdown 长文：使用 youtube-transcr
 
 `youtube-transcript-api`
 
+可选兜底依赖：
+
+`yt-dlp`
+
 如果脚本提示缺少依赖，先运行：
 
 ```bash
 python3 -m pip install --user youtube-transcript-api
+```
+
+如果 `youtube-transcript-api` 获取失败，脚本会自动尝试调用 `yt-dlp` 下载 VTT 字幕作为兜底。`yt-dlp` 推荐用 Homebrew 安装：
+
+```bash
+brew install yt-dlp
 ```
 
 ## 工作流
@@ -42,6 +52,18 @@ python3 <SKILL_ROOT>/scripts/youtube_transcript_to_md.py \
 ```
 
 平时不要加 `--save-json` 或 `--save-srt`。这两个参数只用于调试、核对字幕原始内容，日常交付只需要 Markdown。
+
+默认流程是先用 `youtube-transcript-api`，失败时自动用 `yt-dlp` 兜底。遇到已知 API 抓不到、需要直接测试 `yt-dlp` 的视频，可以加：
+
+```bash
+--yt-dlp-only
+```
+
+如果需要禁用兜底，只测试主 API，可以加：
+
+```bash
+--no-yt-dlp-fallback
+```
 
 3. 默认语言优先级：
 
@@ -67,15 +89,6 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
    - 抽查开头是否从视频开场字幕开始，避免漏掉前半段。
    - 最终回复只给 Markdown 路径，不需要展示 JSON/SRT。
 
-## 重要限制
-
-- `youtube-transcript-api` 使用的是 YouTube web-client 的非公开 transcript 机制，不是 YouTube 官方 Data API；它可能随 YouTube 改动而失效。
-- 它不需要 API key，也不需要浏览器。
-- YouTube 可能限制请求频率或封锁部分 IP；遇到 `RequestBlocked`、`IpBlocked` 或类似错误时，提示用户降低频率或稍后重试。
-- 项目文档说明 Cookie 鉴权近期不可用/不稳定，因此本 skill 不默认处理 YouTube Cookie。
-- 年龄限制、地区限制、关闭字幕、没有字幕的视频，可能无法提取；不要编造内容。
-
-参考项目：`https://github.com/jdepoix/youtube-transcript-api`
 
 ## 脚本说明
 
@@ -92,6 +105,8 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 - `--translate-to`：把已找到的字幕翻译成目标语言。
 - `--keep-time`：保留时间信息，并在末尾生成待人工整理的时间目录草稿。
 - `--include-meta`：在标题下附加字幕语言、字幕类型等元信息。
+- `--no-yt-dlp-fallback`：禁用 `yt-dlp` 自动兜底。
+- `--yt-dlp-only`：跳过 `youtube-transcript-api`，直接用 `yt-dlp` 获取字幕。
 - `--save-json`：调试用，保存 transcript JSON。
 - `--save-srt`：调试用，保存转换后的 SRT。
 
@@ -102,6 +117,7 @@ zh-Hans -> zh-CN -> zh -> zh-Hant -> zh-TW -> en
 - 成功时，直接交付 Markdown 路径。
 - 没有字幕、字幕关闭、视频不可访问、年龄/地区限制时，不编造内容，直接说明失败原因。
 - 缺少依赖时，提示安装 `youtube-transcript-api`。
+- 主 API 失败时自动尝试 `yt-dlp`；如果本机没装 `yt-dlp`，提示安装 `brew install yt-dlp` 或 `python3 -m pip install --user yt-dlp`。
 - 如果用户要求处理现成 SRT，可改用 B 站字幕 skill 里的 SRT 兜底脚本，或请用户提供字幕文本。
 
 ## 正文整理规则
